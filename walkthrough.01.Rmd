@@ -1,0 +1,226 @@
+---
+title: "Walkthrough_V1"
+author: "Bryan P. Acton"
+date: "8/1/2021"
+output: html_document
+---
+This script is a work in progress and is not a perfect representation of prior work. I am to polish this script into a set of clean functions. Please email me if you have any questions: bryan.p.acton@durham.ac.uk
+
+
+#####
+Step 0: Load packages required for this script & Make Functions:
+
+```{r}
+packages <- c("tidyverse", "cocor") 
+##Here you add the names of packages in quotes
+
+
+lapply(packages, require, character.only = TRUE)
+##Here I run the apply function to download all of the packages (for aesthetics)
+
+rm(packages)
+##Remove the list of packages from the workspace
+
+```
+
+
+Step 1: Load the data file with the items listed, followed by the R/K answers. The columns for the R/K answers need to end with "_RK". 
+```{r setup, include=FALSE}
+data <- dplyr::as_tibble(read.csv("Toxic_example.csv"))
+```
+
+Step 2: Seperate "Remember/Know" Items. Note: We are removing ID's with less than 4 Remember or Know Ratings
+
+```{r}
+RK <- data %>% dplyr::select(ends_with("_RK")) %>%
+  mutate(ID = c(1:nrow(.)))%>%select(ID, everything())
+
+data <- data %>% filter(R_freq > 4,
+                                   R_freq < 26)
+
+```
+
+Step 3: Calculate Overall Scale Reliability for later
+```{r}
+
+Toxic <- data%>%select(Toxic_1:Toxic_30, -ends_with(c("RK","RT")))
+
+psych::alpha(Toxic)
+```
+
+The alpha reliability for Toxic is .95
+
+
+
+Step 4: This performs a for loop to calculate the items that were "Remember" and "Know" for each person
+```{r}
+Remember  <- c()
+
+for(i in 1:nrow(RK)){
+  Remember[i] <- RK%>%
+    dplyr::filter(ID == i)%>%
+    dplyr::select(starts_with("Toxic"))%>%
+    t()%>%
+    as.data.frame()%>%
+    remove_rownames()%>%
+    add_column(item = c(1:30), .before = 1)%>% ##This needs to be the amount of items in the scale
+    dplyr::rename("rating" = 2)%>%
+    dplyr::filter(rating == 1)%>%
+    dplyr::select(1)
+}
+
+Know  <- c()
+
+
+for(i in 1:nrow(RK)){
+  Know[i] <- RK%>%
+    dplyr::filter(ID == i)%>%
+    dplyr::select(starts_with("Toxic"))%>%
+    t()%>%
+    as.data.frame()%>%
+    remove_rownames()%>%
+    add_column(item = c(1:30), .before = 1)%>% ##This needs to be the amount of items in the scale
+    dplyr:: rename("rating" = 2)%>%
+    dplyr::filter(rating == 2)%>%
+    dplyr::select(1)
+}
+
+```
+
+
+Step 5: Calculate the  "Remember" score & "Know" score for Toxic leadership based on the means of their items on this subscale. Also calculate the frequency of Remember & Know items for each person for later
+```{r}
+remember_score <- c()
+
+for(i in 1:nrow(Toxic)){
+  temp_df <- unlist(Remember[i])
+  remember_score[i]<- Toxic%>%
+    dplyr::filter(row_number()== i)%>%
+    dplyr::select(c(temp_df))%>%
+    rowMeans()
+}
+
+
+
+know_score <- c()
+
+for(i in 1:nrow(Toxic)){
+  temp_df <- unlist(Know[i])
+  know_score[i]<- Toxic%>%
+    dplyr::filter(row_number()== i)%>%
+    dplyr::select(c(temp_df))%>%
+    rowMeans()
+}
+
+K_freq <- c()
+
+for(i in 1:nrow(Toxic)){
+  temp_df <- unlist(Know[i])
+  K_freq[i]<- Toxic%>%
+    dplyr::filter(row_number()== i)%>%
+    dplyr::select(c(temp_df))%>%
+    length()
+}
+
+R_freq <- c()
+
+for(i in 1:nrow(Toxic)){
+  temp_df <- unlist(Remember[i])
+  R_freq[i]<- Toxic%>%
+    dplyr::filter(row_number()== i)%>%
+    dplyr::select(c(temp_df))%>%
+    length()
+}
+
+
+data$Toxic_R <- remember_score
+data$Toxic_K <- know_score
+data$K_freq <- K_freq
+data$R_freq <- R_freq
+
+```
+
+
+Step 6: Calculate the adjusted alpha based on the length of the subscale for know items:
+```{r}
+#####################KNOW###################################################
+
+K_alpha <- c() ##save the alpha for know ratings
+
+
+for(i in 1:nrow(data)){
+  temp<- CTT::spearman.brown(r.xx = .95, ## enter in reliability from overall scale
+                             input = (data$K_freq/30)[i], ##enter in scale length
+                             n.or.r = "n")
+  K_alpha[i]<- temp$r.new
+}
+
+
+data$K_alpha <- K_alpha
+
+
+
+```
+
+
+
+Step 7: Calculate the adjusted correlation for Know items based on the new alpha
+```{r}
+CT_covary <- (((data$Toxic_K -
+                  (mean(data$Toxic_K))) *
+                 (data$cognitive_trust   - #
+                    (mean(data$cognitive_trust  ))))/sqrt(K_alpha * .95))
+#
+n <- sum(CT_covary)/258 ##This should be the total N-1
+d <- sd(data$Toxic_K) * sd(data$cognitive_trust)
+
+CT_K.cor <- n/d
+
+
+```
+Perform the same on the Remember ratings:
+
+```{r}
+
+R_alpha <- c() ##save the alpha for know ratings
+
+
+for(i in 1:nrow(data)){
+  temp<- CTT::spearman.brown(r.xx = .95, ## enter in reliability from overall scale
+                             input = (data$R_freq/30)[i], ##enter in scale length
+                             n.or.r = "n")
+  R_alpha[i]<- temp$r.new
+}
+
+
+data$R_alpha <- R_alpha
+
+```
+
+```{r}
+
+CT_covary <- (((data$Toxic_R -
+                  (mean(data$Toxic_R))) *
+                 (data$cognitive_trust - #
+                    (mean(data$cognitive_trust  ))))/sqrt(R_alpha * .95))
+#
+n <- sum(CT_covary)/258 ##This should be the total N-1
+d <- sd(data$Toxic_R) * sd(data$cognitive_trust)
+
+CT_R.cor <- n/d
+
+```
+Step 7: Calclate the correlation between the two subscales, then compare the correlations using Hotteling's T
+
+```{r}
+#########
+cor.test(data$Toxic_K, data$Toxic_R)
+
+require(cocor) # load package
+cocor.dep.groups.overlap(r.jk=CT_R.cor, r.jh=CT_K.cor, r.kh=.84, n=259,
+                         alternative="t", alpha=0.05,
+                         conf.level=0.95, null.value=0)
+```
+
+Here, the correlations were not sig. different from one another
+
